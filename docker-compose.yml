@@ -1,0 +1,60 @@
+version: "3.3"
+
+services:
+  traefik:
+    image: traefik:latest
+    restart: unless-stopped
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --providers.docker=true
+      - --providers.file.directory=/etc/traefik/dynamic_conf
+      - --providers.file.watch=true
+    ports:
+      - 4431:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./certs/:/certs/:ro
+      - ./traefik.yml:/etc/traefik/dynamic_conf/conf.yml:ro
+
+  freshrss-db:
+    image: postgres:14-alpine
+    container_name: freshrss-db
+    hostname: freshrss-db
+    restart: unless-stopped
+    volumes:
+      - db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-freshrss}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-freshrss}
+      POSTGRES_DB: ${POSTGRES_DB:-freshrss}
+
+  freshrss-app:
+    image: freshrss/freshrss:latest
+    container_name: freshrss-app
+    hostname: freshrss-app
+    restart: unless-stopped
+    depends_on:
+      - freshrss-db
+    volumes:
+      - data:/var/www/FreshRSS/data
+      - extensions:/var/www/FreshRSS/extensions
+    environment:
+      CRON_MIN: '*/1'
+      TZ: UTC
+    labels:
+      # http with redirection
+      - traefik.http.middlewares.redirect-middleware.redirectscheme.scheme=https
+      - traefik.http.routers.web-router.entrypoints=web
+      - traefik.http.routers.web-router.rule=Host(`192.168.1.100`)
+      - traefik.http.routers.web-router.middlewares=redirect-middleware
+      # https
+      - traefik.http.routers.websecure-router.entrypoints=websecure
+      - traefik.http.routers.websecure-router.tls=true
+      - traefik.http.routers.websecure-router.rule=Host(`192.168.1.100`)
+
+
+volumes:
+  db:
+  data:
+  extensions:
